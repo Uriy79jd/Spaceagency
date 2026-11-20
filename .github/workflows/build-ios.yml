@@ -15,30 +15,22 @@ jobs:
       - name: 2. Unzip SpaceAgency source
         run: |
           unzip -o SpaceAgency-source-182.zip -d unzipped_source
-          echo "=== UNZIPPED CONTENTS ==="
-          find unzipped_source -maxdepth 4
 
-      - name: 3. Build Unsigned App
+      - name: 3. Install XcodeGen & Generate Xcode Project
         run: |
-          WORKSPACE=$(find unzipped_source -maxdepth 5 -name "*.xcworkspace" | grep -v "project.xcworkspace" | head -n 1)
-          PROJECT=$(find unzipped_source -maxdepth 5 -name "*.xcodeproj" | head -n 1)
+          brew install xcodegen
+          cd unzipped_source
+          xcodegen generate
 
-          if [ -n "$WORKSPACE" ]; then
-            TARGET_FLAG="-workspace"
-            TARGET_PATH="$WORKSPACE"
-          elif [ -n "$PROJECT" ]; then
-            TARGET_FLAG="-project"
-            TARGET_PATH="$PROJECT"
-          else
-            echo "No Xcode project found inside SpaceAgency-source-182.zip"
-            exit 1
-          fi
-
-          SCHEME=$(xcodebuild -list "$TARGET_FLAG" "$TARGET_PATH" | awk '/Schemes:/{flag=1;next}/^$/{flag=0}flag' | sed 's/^[[:space:]]*//' | head -n 1)
-          echo "Building $TARGET_PATH with scheme $SCHEME"
+      - name: 4. Build Unsigned App
+        run: |
+          cd unzipped_source
+          PROJECT=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
+          SCHEME=$(xcodebuild -list -project "$PROJECT" | awk '/Schemes:/{flag=1;next}/^$/{flag=0}flag' | sed 's/^[[:space:]]*//' | head -n 1)
+          echo "Building $PROJECT with scheme $SCHEME"
 
           xcodebuild clean build \
-            "$TARGET_FLAG" "$TARGET_PATH" \
+            -project "$PROJECT" \
             -scheme "$SCHEME" \
             -configuration Release \
             -sdk iphoneos \
@@ -47,13 +39,13 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
 
-      - name: 4. Package into .ipa
+      - name: 5. Package into .ipa
         run: |
           mkdir -p Payload
-          cp -r build/Build/Products/Release-iphoneos/*.app Payload/
+          cp -r unzipped_source/build/Build/Products/Release-iphoneos/*.app Payload/
           zip -r SpaceAgency.ipa Payload
 
-      - name: 5. Upload IPA Artifact
+      - name: 6. Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: SpaceAgency-IPA
