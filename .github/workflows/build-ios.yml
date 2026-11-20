@@ -1,1 +1,112 @@
 
+name: Build Space Agency iOS IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - name: Download Space Agency source
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 \
+            "https://github.com/Uriy79jd/Spaceagency/releases/download/Space/SpaceAgency-source-182.zip" \
+            -o "$RUNNER_TEMP/SpaceAgency-source.zip"
+          mkdir -p source
+          ditto -x -k "$RUNNER_TEMP/SpaceAgency-source.zip" source
+          echo "Source downloaded and extracted."
+          find source -maxdepth 4 -type f | head -200
+
+      - name: Find Xcode project
+        id: locate
+        run: |
+          set -euo pipefail
+
+          WORKSPACE=$(find source -name '*.xcworkspace' -not -path '*/Pods/*' -print -quit)
+          PROJECT=$(find source -name '*.xcodeproj' -not -path '*/Pods/*' -print -quit)
+
+          if [ -n "$WORKSPACE" ]; then
+            TARGET="$WORKSPACE"
+            KIND="workspace"
+          elif [ -n "$PROJECT" ]; then
+            TARGET="$PROJECT"
+            KIND="project"
+          else
+            echo "::error::No Xcode project or workspace found in the ZIP."
+            find source -maxdepth 5 -print | head -300
+            exit 1
+          fi
+
+          if [ "$KIND" = "workspace" ]; then
+            xcodebuild -list -json -workspace "$TARGET" > "$RUNNER_TEMP/list.json"
+          else
+            xcodebuild -list -json -project "$TARGET" > "$RUNNER_TEMP/list.json"
+          fi
+
+          SCHEME=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); k="workspace" if "workspace" in d else "project"; s=d[k].get("schemes",[]); print(s[0] if s else "")' "$RUNNER_TEMP/list.json")
+
+          if [ -z "$SCHEME" ]; then
+            echo "::error::No shared Xcode scheme found."
+            cat "$RUNNER_TEMP/list.json"
+            exit 1
+          fi
+
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "kind=$KIND" >> "$GITHUB_OUTPUT"
+          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+
+      - name: Build iOS archive
+        run: |
+          set -euo pipefail
+
+          if [ "${{ steps.locate.outputs.kind }}" = "workspace" ]; then
+            xcodebuild archive \
+              -workspace "${{ steps.locate.outputs.target }}" \
+              -scheme "${{ steps.locate.outputs.scheme }}" \
+              -configuration Release \
+              -destination "generic/platform=iOS" \
+              -archivePath "$RUNNER_TEMP/SpaceAgency.xcarchive" \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO
+          else
+            xcodebuild archive \
+              -project "${{ steps.locate.outputs.target }}" \
+              -scheme "${{ steps.locate.outputs.scheme }}" \
+              -configuration Release \
+              -destination "generic/platform=iOS" \
+              -archivePath "$RUNNER_TEMP/SpaceAgency.xcarchive" \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO
+          fi
+
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+
+          APP=$(find "$RUNNER_TEMP/SpaceAgency.xcarchive/Products/Applications" -maxdepth 1 -name '*.app' -print -quit)
+
+          if [ -z "$APP" ]; then
+            echo "::error::No iOS app was produced."
+            exit 1
+          fi
+
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          ditto "$APP" "$RUNNER_TEMP/ipa/Payload/$(basename "$APP")"
+
+          cd "$RUNNER_TEMP/ipa"
+          zip -qry "$GITHUB_WORKSPACE/SpaceAgency.ipa" Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpaceAgency-IPA
+          path: SpaceAgency.ipa
+          if-no-files-found: error
+          retention-days: 14
