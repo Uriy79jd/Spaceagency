@@ -1,4 +1,4 @@
-name: Build My IPA
+name: Build SpaceAgency IPA
 
 on:
   workflow_dispatch:
@@ -8,18 +8,19 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: 1. Checkout code
+      - name: 1. Checkout repository
         uses: actions/checkout@v4
 
-      - name: 2. List repository files
+      - name: 2. Unzip SpaceAgency source
         run: |
-          echo "=== FILES IN REPO ==="
-          find . -maxdepth 3 -not -path '*/.*'
+          unzip -o SpaceAgency-source-182.zip -d unzipped_source
+          echo "=== UNZIPPED CONTENTS ==="
+          find unzipped_source -maxdepth 4
 
       - name: 3. Build Unsigned App
         run: |
-          WORKSPACE=$(find . -maxdepth 4 -name "*.xcworkspace" | grep -v "project.xcworkspace" | head -n 1)
-          PROJECT=$(find . -maxdepth 4 -name "*.xcodeproj" | head -n 1)
+          WORKSPACE=$(find unzipped_source -maxdepth 5 -name "*.xcworkspace" | grep -v "project.xcworkspace" | head -n 1)
+          PROJECT=$(find unzipped_source -maxdepth 5 -name "*.xcodeproj" | head -n 1)
 
           if [ -n "$WORKSPACE" ]; then
             TARGET_FLAG="-workspace"
@@ -28,7 +29,7 @@ jobs:
             TARGET_FLAG="-project"
             TARGET_PATH="$PROJECT"
           else
-            echo "NO_XCODE_FOUND"
+            echo "No Xcode project found inside SpaceAgency-source-182.zip"
             exit 1
           fi
 
@@ -49,10 +50,10 @@ jobs:
         run: |
           mkdir -p Payload
           cp -r build/Build/Products/Release-iphoneos/*.app Payload/
-          zip -r Spaceagency.ipa Payload
+          zip -r SpaceAgency.ipa Payload
 
-      - name: 5. Upload IPA
+      - name: 5. Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Spaceagency-IPA
-          path: Spaceagency.ipa
+          name: SpaceAgency-IPA
+          path: SpaceAgency.ipa
