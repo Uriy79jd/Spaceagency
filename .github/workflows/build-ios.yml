@@ -1,6 +1,7 @@
 name: Build SpaceAgency IPA
 
 on:
+  push:
   workflow_dispatch:
 
 jobs:
